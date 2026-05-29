@@ -355,11 +355,17 @@ Supported classes:
 # 📌 Current Status
 
 ✅ Deep Learning model integrated
+
 ✅ LLM assistant integrated
+
 ✅ Location detection working
+
 ✅ Authority mapping engine integrated
+
 ✅ Complaint draft generation working
+
 ⚠️ Live government complaint submission under evaluation
+
 
 ---
 
