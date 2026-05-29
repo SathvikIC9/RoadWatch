@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RoadWatch — Road Defect Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+
+<!-- Leaflet.js — free OSM maps, no API key needed -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<style>
+/* ── Reset & Base ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:          #080c17;
+  --surface:     #0e1525;
+  --surface2:    #151e33;
+  --border:      rgba(255,255,255,0.07);
+  --border2:     rgba(255,255,255,0.12);
+  --text:        #e8eaf0;
+  --text-muted:  #6b7694;
+  --text-dim:    #3d4a6b;
+  --orange:      #ff6b1a;
+  --orange-glow: rgba(255,107,26,0.15);
+  --teal:        #00d4aa;
+  --teal-glow:   rgba(0,212,170,0.12);
+  --red:         #ff3b5c;
+  --red-glow:    rgba(255,59,92,0.15);
+  --yellow:      #ffc844;
+  --yellow-glow: rgba(255,200,68,0.12);
+  --radius:      12px;
+  --shadow:      0 8px 32px rgba(0,0,0,0.6);
+}
+
+html, body { height: 100%; overflow: hidden; background: var(--bg); font-family: 'DM Sans', sans-serif; color: var(--text); }
+
+/* ── Map ──────────────────────────────────────────────────── */
+#map { position: fixed; inset: 0; z-index: 0; }
+/* Leaflet pane z-index fix so UI overlays appear on top */
+.leaflet-pane { z-index: 1 !important; }
+.leaflet-top, .leaflet-bottom { z-index: 2 !important; }
+
+/* ── Top Bar ──────────────────────────────────────────────── */
+#topbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  height: 56px;
+  background: linear-gradient(180deg, rgba(8,12,23,0.98) 0%, rgba(8,12,23,0.7) 100%);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 20px; gap: 16px;
+  animation: slideDown 0.5s ease;
+}
+@keyframes slideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+#logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+#logo-icon {
+  width: 32px; height: 32px; background: var(--orange);
+  border-radius: 8px; display: flex; align-items: center; justify-content: center;
+  font-family: 'Bebas Neue', sans-serif; font-size: 16px; color: #fff;
+  box-shadow: 0 0 12px var(--orange-glow);
+}
+#logo-text { font-family: 'Bebas Neue', sans-serif; font-size: 20px; letter-spacing: 2px; color: var(--text); }
+#logo-sub { font-size: 10px; color: var(--text-muted); letter-spacing: 1px; text-transform: uppercase; font-family: 'IBM Plex Mono', monospace; }
+
+.spacer { flex: 1; }
+
+.status-pill {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border-radius: 20px;
+  border: 1px solid var(--border2); background: var(--surface);
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--text-muted);
+}
+.status-dot { width: 6px; height: 6px; border-radius: 50%; }
+.dot-green { background: var(--teal); box-shadow: 0 0 6px var(--teal); animation: pulse 2s infinite; }
+.dot-red   { background: var(--red); }
+.dot-dim   { background: var(--text-dim); }
+@keyframes pulse { 0%,100%{ opacity:1; } 50%{ opacity:0.4; } }
+
+/* ── Floating Action Button ───────────────────────────────── */
+#fab {
+  position: fixed; bottom: 32px; right: 24px; z-index: 200;
+  width: 56px; height: 56px; border-radius: 16px;
+  background: var(--orange); border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 24px rgba(255,107,26,0.5);
+  transition: transform 0.2s, box-shadow 0.2s;
+  animation: fadeUp 0.6s 0.3s ease both;
+}
+#fab:hover { transform: translateY(-2px) scale(1.05); box-shadow: 0 8px 32px rgba(255,107,26,0.6); }
+#fab svg { width: 24px; height: 24px; fill: #fff; }
+
+/* ── Location Panel (bottom-left) ────────────────────────── */
+#loc-panel {
+  position: fixed; bottom: 24px; left: 24px; z-index: 100;
+  width: 300px; background: var(--surface);
+  border: 1px solid var(--border2); border-radius: var(--radius);
+  padding: 16px; animation: fadeUp 0.5s 0.1s ease both;
+  box-shadow: var(--shadow);
+}
+@keyframes fadeUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+.panel-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+  letter-spacing: 2px; text-transform: uppercase; color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.loc-road { font-size: 15px; font-weight: 600; color: var(--text); line-height: 1.3; margin-bottom: 4px; }
+.loc-addr { font-size: 12px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.5; }
+
+.road-type-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600;
+  font-family: 'IBM Plex Mono', monospace; letter-spacing: 1px;
+  margin-bottom: 12px;
+}
+.badge-nh  { background: rgba(255,107,26,0.15); color: var(--orange); border: 1px solid rgba(255,107,26,0.3); }
+.badge-sh  { background: rgba(255,200,68,0.12); color: var(--yellow); border: 1px solid rgba(255,200,68,0.3); }
+.badge-mdr { background: rgba(0,212,170,0.12);  color: var(--teal);   border: 1px solid rgba(0,212,170,0.3); }
+.badge-city{ background: rgba(120,120,255,0.12);color: #a0a0ff;       border: 1px solid rgba(120,120,255,0.3); }
+.badge-unknown{ background: var(--surface2); color: var(--text-muted); border: 1px solid var(--border); }
+
+.authority-row { display: flex; flex-direction: column; gap: 4px; padding: 10px; background: var(--surface2); border-radius: 8px; margin-bottom: 12px; }
+.auth-name  { font-size: 12px; font-weight: 600; color: var(--text); }
+.auth-phone { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--orange); }
+.auth-sla   { font-size: 10px; color: var(--text-muted); }
+
+.btn-locate {
+  width: 100%; padding: 9px; border-radius: 8px;
+  background: var(--surface2); border: 1px solid var(--border2);
+  color: var(--text); font-size: 13px; font-family: 'DM Sans', sans-serif;
+  cursor: pointer; transition: background 0.2s, border-color 0.2s;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.btn-locate:hover { background: var(--orange-glow); border-color: var(--orange); }
+
+/* ── Sliding Panels (Report + Chat) ──────────────────────── */
+.slide-panel {
+  position: fixed; top: 56px; right: 0; bottom: 0; z-index: 300;
+  width: 420px; background: var(--surface);
+  border-left: 1px solid var(--border2);
+  display: flex; flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: -8px 0 40px rgba(0,0,0,0.5);
+}
+.slide-panel.open { transform: translateX(0); }
+
+.panel-header {
+  padding: 18px 20px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  flex-shrink: 0;
+}
+.panel-title { font-family: 'Bebas Neue', sans-serif; font-size: 20px; letter-spacing: 1px; }
+.panel-close {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text-muted); cursor: pointer; font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.2s;
+}
+.panel-close:hover { background: var(--red-glow); color: var(--red); }
+
+.panel-body { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+.panel-body::-webkit-scrollbar { width: 4px; }
+.panel-body::-webkit-scrollbar-track { background: transparent; }
+.panel-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* ── Report Panel ─────────────────────────────────────────── */
+.upload-zone {
+  border: 2px dashed var(--border2); border-radius: var(--radius);
+  padding: 32px 20px; text-align: center; cursor: pointer;
+  transition: border-color 0.2s, background 0.2s; position: relative;
+}
+.upload-zone:hover, .upload-zone.drag { border-color: var(--orange); background: var(--orange-glow); }
+.upload-icon { font-size: 32px; margin-bottom: 8px; }
+.upload-text { font-size: 13px; color: var(--text-muted); line-height: 1.6; }
+.upload-text span { color: var(--orange); cursor: pointer; }
+#file-input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+.preview-img {
+  width: 100%; border-radius: 8px; object-fit: cover; max-height: 200px;
+  border: 1px solid var(--border2);
+}
+
+/* Detection result card */
+.detect-card {
+  padding: 14px; border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface2);
+}
+.detect-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.severity-badge {
+  padding: 4px 12px; border-radius: 20px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 1px;
+}
+.sev-high   { background: var(--red-glow);    color: var(--red);    border: 1px solid rgba(255,59,92,0.3); }
+.sev-medium { background: var(--yellow-glow); color: var(--yellow); border: 1px solid rgba(255,200,68,0.3); }
+.sev-low    { background: var(--teal-glow);   color: var(--teal);   border: 1px solid rgba(0,212,170,0.3); }
+.sev-none   { background: var(--surface);     color: var(--text-muted); border: 1px solid var(--border); }
+
+.detect-stat { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--text-muted); }
+
+.defect-list { display: flex; flex-direction: column; gap: 6px; }
+.defect-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 10px; border-radius: 8px; background: var(--bg);
+  border: 1px solid var(--border);
+}
+.defect-name { font-size: 12px; font-weight: 500; text-transform: capitalize; }
+.defect-conf { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--text-muted); }
+
+.summary-box {
+  padding: 12px; border-radius: 8px;
+  background: var(--orange-glow); border: 1px solid rgba(255,107,26,0.2);
+  font-size: 12px; line-height: 1.6; color: var(--text);
+}
+
+/* Form elements */
+.form-group { display: flex; flex-direction: column; gap: 6px; }
+.form-label { font-size: 11px; color: var(--text-muted); letter-spacing: 0.5px; font-family: 'IBM Plex Mono', monospace; }
+.form-input, .form-select, .form-textarea {
+  padding: 10px 12px; border-radius: 8px;
+  background: var(--surface2); border: 1px solid var(--border2);
+  color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 13px;
+  transition: border-color 0.2s;
+  width: 100%;
+}
+.form-input:focus, .form-select:focus, .form-textarea:focus {
+  outline: none; border-color: var(--orange);
+}
+.form-textarea { resize: vertical; min-height: 80px; }
+.form-select option { background: var(--surface2); }
+
+.btn-primary {
+  padding: 12px; border-radius: 8px; border: none;
+  background: var(--orange); color: #fff;
+  font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600;
+  cursor: pointer; transition: opacity 0.2s, transform 0.2s;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+.btn-secondary {
+  padding: 10px 16px; border-radius: 8px;
+  background: var(--surface2); border: 1px solid var(--border2);
+  color: var(--text); font-size: 13px; font-family: 'DM Sans', sans-serif;
+  cursor: pointer; transition: background 0.2s;
+}
+.btn-secondary:hover { background: var(--surface); border-color: var(--orange); }
+
+.success-toast {
+  padding: 12px 16px; border-radius: 8px;
+  background: var(--teal-glow); border: 1px solid rgba(0,212,170,0.3);
+  color: var(--teal); font-size: 13px; text-align: center;
+  animation: fadeUp 0.3s ease;
+}
+
+/* ── Chat Panel ───────────────────────────────────────────── */
+#chat-panel .panel-body { padding: 0; }
+
+.chat-messages {
+  flex: 1; overflow-y: auto; padding: 16px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.chat-messages::-webkit-scrollbar { width: 4px; }
+.chat-messages::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+.msg {
+  max-width: 85%; padding: 10px 14px; border-radius: 12px;
+  font-size: 13px; line-height: 1.6; animation: fadeUp 0.3s ease;
+}
+.msg-bot {
+  align-self: flex-start;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-bottom-left-radius: 4px; color: var(--text);
+}
+.msg-user {
+  align-self: flex-end;
+  background: var(--orange); color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.msg-thinking {
+  align-self: flex-start;
+  background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text-muted); font-style: italic;
+}
+.typing-dots { display: inline-flex; gap: 3px; align-items: center; }
+.typing-dots span {
+  width: 5px; height: 5px; border-radius: 50%; background: var(--text-muted);
+  animation: bounce 1.2s infinite;
+}
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bounce { 0%,60%,100%{ transform:translateY(0); } 30%{ transform:translateY(-6px); } }
+
+.chat-input-row {
+  padding: 12px 16px; border-top: 1px solid var(--border);
+  display: flex; gap: 8px; flex-shrink: 0;
+}
+.chat-input {
+  flex: 1; padding: 10px 14px; border-radius: 8px;
+  background: var(--surface2); border: 1px solid var(--border2);
+  color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 13px;
+}
+.chat-input:focus { outline: none; border-color: var(--orange); }
+.chat-send {
+  width: 40px; height: 40px; border-radius: 8px;
+  background: var(--orange); border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity 0.2s;
+}
+.chat-send:hover { opacity: 0.85; }
+.chat-send svg { width: 16px; height: 16px; fill: #fff; }
+
+.quick-asks {
+  padding: 0 16px 12px; display: flex; flex-wrap: wrap; gap: 6px;
+}
+.quick-ask {
+  padding: 5px 10px; border-radius: 20px;
+  background: var(--surface2); border: 1px solid var(--border2);
+  font-size: 11px; color: var(--text-muted); cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+.quick-ask:hover { border-color: var(--orange); color: var(--orange); }
+
+/* ── Tab Switcher ─────────────────────────────────────────── */
+#panel-tabs {
+  position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%);
+  z-index: 200; display: flex; gap: 0;
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 12px; overflow: hidden;
+  box-shadow: var(--shadow); animation: fadeUp 0.5s 0.2s ease both;
+}
+.tab-btn {
+  padding: 10px 20px; border: none; background: transparent;
+  color: var(--text-muted); font-family: 'DM Sans', sans-serif; font-size: 13px;
+  font-weight: 500; cursor: pointer; transition: background 0.2s, color 0.2s;
+  display: flex; align-items: center; gap: 6px;
+}
+.tab-btn:first-child { border-right: 1px solid var(--border); }
+.tab-btn.active { background: var(--orange-glow); color: var(--orange); }
+.tab-btn svg { width: 14px; height: 14px; }
+
+/* ── Loading spinner ──────────────────────────────────────── */
+.spinner {
+  width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.2);
+  border-top-color: #fff; border-radius: 50%;
+  animation: spin 0.7s linear infinite; display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Overlay (panel backdrop) ────────────────────────────── */
+#overlay {
+  display: none; position: fixed; inset: 0; z-index: 250;
+  background: rgba(0,0,0,0.4); backdrop-filter: blur(2px);
+}
+#overlay.show { display: block; }
+
+/* ── Map marker popup ─────────────────────────────────────── */
+.map-popup {
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 8px; padding: 12px; min-width: 200px;
+  font-family: 'DM Sans', sans-serif; color: var(--text);
+}
+.map-popup h4 { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.map-popup p  { font-size: 11px; color: var(--text-muted); line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<!-- Map container -->
+<div id="map"></div>
+
+<!-- Top bar -->
+<div id="topbar">
+  <div id="logo">
+    <div id="logo-icon">RW</div>
+    <div>
+      <div id="logo-text">RoadWatch</div>
+      <div id="logo-sub">Road Defect Intelligence</div>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <div class="status-pill" id="cv-status">
+    <div class="status-dot dot-dim" id="cv-dot"></div>
+    <span id="cv-label">CV Model</span>
+  </div>
+  <div class="status-pill" id="rag-status">
+    <div class="status-dot dot-dim" id="rag-dot"></div>
+    <span id="rag-label">RAG Engine</span>
+  </div>
+</div>
+
+<!-- Location panel -->
+<div id="loc-panel">
+  <div class="panel-label">📍 Current Location</div>
+  <div class="loc-road" id="loc-road">Detecting location...</div>
+  <div class="loc-addr" id="loc-addr">Allow location access to identify your road</div>
+  <div id="road-type-badge" class="road-type-badge badge-unknown">UNKNOWN</div>
+  <div class="authority-row" id="auth-row" style="display:none">
+    <div class="auth-name" id="auth-name">—</div>
+    <div class="auth-phone" id="auth-phone">—</div>
+    <div class="auth-sla"  id="auth-sla">—</div>
+  </div>
+  <button class="btn-locate" onclick="locateUser()">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+    Detect My Location
+  </button>
+</div>
+
+<!-- Tab switcher -->
+<div id="panel-tabs">
+  <button class="tab-btn active" onclick="openPanel('report')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+    Report Issue
+  </button>
+  <button class="tab-btn" onclick="openPanel('chat')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+    Ask RoadWatch AI
+  </button>
+</div>
+
+<!-- FAB -->
+<button id="fab" onclick="openPanel('report')" title="Report a road issue">
+  <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+</button>
+
+<!-- Overlay -->
+<div id="overlay" onclick="closePanel()"></div>
+
+<!-- REPORT PANEL -->
+<div class="slide-panel" id="report-panel">
+  <div class="panel-header">
+    <div class="panel-title">Report Road Issue</div>
+    <button class="panel-close" onclick="closePanel()">✕</button>
+  </div>
+  <div class="panel-body">
+
+    <!-- Step 1: Photo upload -->
+    <div class="panel-label">STEP 1 — UPLOAD PHOTO</div>
+    <div class="upload-zone" id="upload-zone"
+         ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)">
+      <input type="file" id="file-input" accept="image/*" onchange="handleFile(event)"/>
+      <div class="upload-icon">📷</div>
+      <div class="upload-text">
+        Drag & drop a road photo or <span onclick="document.getElementById('file-input').click()">browse</span><br/>
+        AI will auto-detect damage and severity
+      </div>
+    </div>
+    <img id="preview" class="preview-img" style="display:none"/>
+
+    <!-- Detection result -->
+    <div id="detect-result" style="display:none">
+      <div class="panel-label">AI DETECTION RESULT</div>
+      <div class="detect-card">
+        <div class="detect-header">
+          <div id="sev-badge" class="severity-badge sev-none">NONE</div>
+          <div class="detect-stat"><span id="defect-count">0</span> defects · <span id="infer-time">—</span></div>
+        </div>
+        <div id="defect-list" class="defect-list"></div>
+        <div class="summary-box" id="detect-summary" style="margin-top:10px"></div>
+      </div>
+    </div>
+
+    <!-- Annotated image -->
+    <img id="annotated-img" class="preview-img" style="display:none"/>
+
+    <!-- Step 2: Location -->
+    <div class="panel-label">STEP 2 — LOCATION</div>
+    <div class="form-group">
+      <label class="form-label">Road / Location</label>
+      <input class="form-input" id="complaint-location" placeholder="Auto-filled from GPS or type manually"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Road Type</label>
+      <select class="form-select" id="complaint-road-type" onchange="updateAuthority()">
+        <option value="">Select road type</option>
+        <option value="NH">NH — National Highway</option>
+        <option value="SH">SH — State Highway</option>
+        <option value="MDR">MDR — Major District Road</option>
+        <option value="City">City / Municipal Road</option>
+        <option value="Rural">Rural / Village Road</option>
+      </select>
+    </div>
+
+    <!-- Step 3: Details -->
+    <div class="panel-label">STEP 3 — DETAILS</div>
+    <div class="form-group">
+      <label class="form-label">Your Name (optional)</label>
+      <input class="form-input" id="complaint-name" placeholder="Anonymous if left blank"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Description</label>
+      <textarea class="form-textarea" id="complaint-desc" placeholder="Describe the issue — auto-filled if you uploaded a photo"></textarea>
+    </div>
+
+    <!-- Authority info -->
+    <div id="authority-info" style="display:none">
+      <div class="panel-label">ROUTED TO</div>
+      <div class="authority-row">
+        <div class="auth-name" id="report-auth-name">—</div>
+        <div class="auth-phone" id="report-auth-phone">—</div>
+        <div class="auth-sla" id="report-auth-sla">—</div>
+        <a id="report-auth-link" href="#" target="_blank"
+           style="font-size:11px; color:var(--teal); text-decoration:none; margin-top:2px;">
+          File online complaint →
+        </a>
+      </div>
+    </div>
+
+    <!-- Offline indicator -->
+    <div id="offline-banner" style="display:none; padding:10px; border-radius:8px; background:rgba(255,200,68,0.1); border:1px solid rgba(255,200,68,0.3); font-size:12px; color:var(--yellow);">
+      📶 No internet — complaint saved locally. Will submit automatically when back online.
+    </div>
+
+    <!-- Submit -->
+    <button class="btn-primary" id="submit-btn" onclick="submitComplaint()">
+      Submit Complaint
+    </button>
+    <div id="submit-success" style="display:none" class="success-toast">
+      ✅ Complaint filed successfully! Reference ID: <strong id="ref-id">—</strong>
+    </div>
+
+  </div>
+</div>
+
+<!-- CHAT PANEL -->
+<div class="slide-panel" id="chat-panel">
+  <div class="panel-header">
+    <div class="panel-title">RoadWatch AI</div>
+    <button class="panel-close" onclick="closePanel()">✕</button>
+  </div>
+  <div id="chat-messages" class="chat-messages">
+    <div class="msg msg-bot">
+      👋 Hi! I'm RoadWatch AI. Ask me anything about roads, contractors, budgets, or how to file complaints.<br/><br/>
+      <strong>Try asking:</strong> "Who manages NH-44 in Hyderabad?" or "Is Dilip Buildcon a good contractor?"
+    </div>
+  </div>
+  <div class="quick-asks">
+    <div class="quick-ask" onclick="quickAsk('How do I file a complaint for a pothole on a National Highway?')">NH pothole complaint</div>
+    <div class="quick-ask" onclick="quickAsk('Which contractor has the worst record?')">Worst contractor</div>
+    <div class="quick-ask" onclick="quickAsk('How much budget was allocated for road maintenance in 2024?')">Budget info</div>
+    <div class="quick-ask" onclick="quickAsk('How do I escalate if NHAI does not respond?')">Escalation steps</div>
+  </div>
+  <div class="chat-input-row">
+    <input class="chat-input" id="chat-input" placeholder="Ask about roads, contractors, authorities..."
+           onkeydown="if(event.key==='Enter') sendChat()"/>
+    <button class="chat-send" onclick="sendChat()">
+      <svg viewBox="0 0 24 24"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/></svg>
+    </button>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════
+// Config
+// ════════════════════════════════════════════════════════════
+const API = 'http://localhost:5000';
+let sessionId = 'user-' + Math.random().toString(36).slice(2, 9);
+let currentMap = null;
+let userMarker  = null;
+let currentLat  = null;
+let currentLng  = null;
+let currentRoadType = null;
+let offlineQueue = JSON.parse(localStorage.getItem('rw_offline') || '[]');
+
+// ════════════════════════════════════════════════════════════
+// Init
+// ════════════════════════════════════════════════════════════
+window.addEventListener('load', () => {
+  initMap();
+  checkHealth();
+  locateUser();
+  setupOnlineListener();
+});
+
+function initMap() {
+  currentMap = L.map('map', { zoomControl: true, attributionControl: true })
+    .setView([17.385, 78.4867], 14);
+
+  // CartoDB Dark Matter — free dark tile layer, no API key needed
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
+    subdomains: 'abcd',
+    maxZoom: 20
+  }).addTo(currentMap);
+}
+
+async function checkHealth() {
+  try {
+    const r = await fetch(`${API}/health`, { signal: AbortSignal.timeout(5000) });
+    const d = await r.json();
+    setStatus('cv', d.cv_model);
+    setStatus('rag', d.rag);
+  } catch { setStatus('cv', false); setStatus('rag', false); }
+}
+
+function setStatus(type, ok) {
+  document.getElementById(`${type}-dot`).className   = `status-dot ${ok ? 'dot-green' : 'dot-red'}`;
+  document.getElementById(`${type}-label`).textContent = type === 'cv' ? `CV Model ${ok?'Ready':'Offline'}` : `RAG ${ok?'Ready':'Offline'}`;
+}
+
+// ════════════════════════════════════════════════════════════
+// Location
+// ════════════════════════════════════════════════════════════
+function locateUser() {
+  if (!navigator.geolocation) {
+    document.getElementById('loc-road').textContent = 'Location not supported';
+    return;
+  }
+  document.getElementById('loc-road').textContent = 'Locating...';
+  navigator.geolocation.getCurrentPosition(onPosition, onGeoError, {
+    enableHighAccuracy: true, timeout: 10000
+  });
+}
+
+function onPosition(pos) {
+  const lat = pos.coords.latitude;
+  const lng = pos.coords.longitude;
+  currentLat = lat;
+  currentLng = lng;
+
+  // Move map
+  if (currentMap) {
+    currentMap.setView([lat, lng], 16);
+  }
+
+  // Place marker (Leaflet circle marker styled like the original)
+  if (userMarker) userMarker.remove();
+  userMarker = L.circleMarker([lat, lng], {
+    radius: 10,
+    fillColor: '#ff6b1a',
+    color: '#ffffff',
+    weight: 3,
+    opacity: 1,
+    fillOpacity: 1
+  }).addTo(currentMap).bindPopup('Your location');
+
+  // Ask backend for road info
+  fetchLocationInfo(lat, lng);
+}
+
+async function fetchLocationInfo(lat, lng) {
+  try {
+    const r = await fetch(`${API}/location`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat, lng, session_id: sessionId })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    updateLocationPanel(d);
+    prefillComplaintForm(d);
+  } catch (e) {
+    // Fallback to browser geocoder if backend fails
+    reverseGeocodeClient(lat, lng);
+  }
+}
+
+function updateLocationPanel(d) {
+  document.getElementById('loc-road').textContent = d.road_name || 'Unknown Road';
+  document.getElementById('loc-addr').textContent = d.formatted_address || '';
+
+  const badge = document.getElementById('road-type-badge');
+  const typeMap = { NH:'badge-nh', SH:'badge-sh', MDR:'badge-mdr', City:'badge-city', Rural:'badge-unknown', Unknown:'badge-unknown' };
+  badge.className = `road-type-badge ${typeMap[d.road_type] || 'badge-unknown'}`;
+  badge.textContent = d.road_type || 'UNKNOWN';
+  currentRoadType = d.road_type;
+
+  if (d.authority && d.authority.name) {
+    const row = document.getElementById('auth-row');
+    row.style.display = 'flex';
+    document.getElementById('auth-name').textContent  = d.authority.name;
+    document.getElementById('auth-phone').textContent = d.authority.helpline || '—';
+    document.getElementById('auth-sla').textContent   = d.authority.sla_days ? `Response within ${d.authority.sla_days} days` : '';
+  }
+}
+
+function prefillComplaintForm(d) {
+  document.getElementById('complaint-location').value = d.road_name || d.formatted_address || '';
+  if (d.road_type) {
+    const sel = document.getElementById('complaint-road-type');
+    const opt = [...sel.options].find(o => o.value === d.road_type);
+    if (opt) { sel.value = d.road_type; updateAuthority(); }
+  }
+}
+
+async function reverseGeocodeClient(lat, lng) {
+  // Nominatim — OpenStreetMap's free reverse geocoder, no key needed
+  try {
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+      { headers: { 'Accept-Language': 'en', 'User-Agent': 'RoadWatchApp/1.0' } }
+    );
+    const d = await r.json();
+    const road = d.address?.road || d.address?.suburb || d.address?.neighbourhood || 'Road detected';
+    const addr = d.display_name || '';
+    document.getElementById('loc-road').textContent = road;
+    document.getElementById('loc-addr').textContent = addr;
+    document.getElementById('complaint-location').value = addr;
+  } catch {
+    document.getElementById('loc-road').textContent = 'Could not reverse geocode';
+  }
+}
+
+function onGeoError() {
+  document.getElementById('loc-road').textContent = 'Could not detect location';
+  document.getElementById('loc-addr').textContent = 'Click "Detect My Location" to retry';
+}
+
+// ════════════════════════════════════════════════════════════
+// Authority lookup on road type change
+// ════════════════════════════════════════════════════════════
+async function updateAuthority() {
+  const roadType = document.getElementById('complaint-road-type').value;
+  if (!roadType) return;
+  currentRoadType = roadType;
+  try {
+    const r = await fetch(`${API}/authority?road_type=${roadType}`);
+    const d = await r.json();
+    if (d.success) {
+      const box = document.getElementById('authority-info');
+      box.style.display = 'block';
+      document.getElementById('report-auth-name').textContent  = d.body_name || '—';
+      document.getElementById('report-auth-phone').textContent = d.helpline  || '—';
+      document.getElementById('report-auth-sla').textContent   = d.sla_days ? `Response within ${d.sla_days} days` : '';
+      const link = document.getElementById('report-auth-link');
+      if (d.portal) { link.href = d.portal; link.style.display = 'block'; }
+    }
+  } catch {}
+}
+
+// ════════════════════════════════════════════════════════════
+// File upload & Detection
+// ════════════════════════════════════════════════════════════
+function handleDragOver(e) { e.preventDefault(); document.getElementById('upload-zone').classList.add('drag'); }
+function handleDragLeave()  { document.getElementById('upload-zone').classList.remove('drag'); }
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('upload-zone').classList.remove('drag');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) processImage(file);
+}
+function handleFile(e) { if (e.target.files[0]) processImage(e.target.files[0]); }
+
+async function processImage(file) {
+  // Show preview
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = document.getElementById('preview');
+    img.src = e.target.result;
+    img.style.display = 'block';
+  };
+  reader.readAsDataURL(file);
+
+  // Run detection
+  document.getElementById('detect-result').style.display = 'none';
+  const submitBtn = document.getElementById('submit-btn');
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = '<div class="spinner"></div> Analysing...';
+
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    if (currentRoadType) form.append('road_type', currentRoadType);
+
+    const r = await fetch(`${API}/detect`, { method: 'POST', body: form });
+    const d = await r.json();
+
+    if (d.success) {
+      renderDetection(d);
+      if (d.annotated_image_b64) {
+        const ann = document.getElementById('annotated-img');
+        ann.src = `data:image/jpeg;base64,${d.annotated_image_b64}`;
+        ann.style.display = 'block';
+      }
+    }
+  } catch (e) {
+    document.getElementById('detect-result').style.display = 'block';
+    document.getElementById('detect-summary').textContent = 'Detection failed — check if backend is running.';
+  }
+
+  submitBtn.disabled = false;
+  submitBtn.innerHTML = 'Submit Complaint';
+}
+
+function renderDetection(d) {
+  document.getElementById('detect-result').style.display = 'block';
+
+  // Severity badge
+  const badge = document.getElementById('sev-badge');
+  const sevMap = { HIGH:'sev-high', MEDIUM:'sev-medium', LOW:'sev-low', NONE:'sev-none' };
+  badge.className = `severity-badge ${sevMap[d.overall_severity] || 'sev-none'}`;
+  badge.textContent = d.overall_severity || 'NONE';
+
+  document.getElementById('defect-count').textContent = d.defect_count;
+  document.getElementById('infer-time').textContent   = `${d.inference_time_ms}ms`;
+
+  // Defect list
+  const list = document.getElementById('defect-list');
+  list.innerHTML = '';
+  (d.detections || []).forEach(det => {
+    const item = document.createElement('div');
+    item.className = 'defect-item';
+    const colMap = { HIGH:'var(--red)', MEDIUM:'var(--yellow)', LOW:'var(--teal)' };
+    item.innerHTML = `
+      <span class="defect-name" style="color:${colMap[det.severity_level]||'var(--text)'}">
+        ${det.class_name.replace(/_/g,' ')}
+      </span>
+      <span class="defect-conf">${(det.confidence * 100).toFixed(0)}%</span>`;
+    list.appendChild(item);
+  });
+
+  // Auto-fill description
+  document.getElementById('detect-summary').textContent = d.complaint_summary || '';
+  document.getElementById('complaint-desc').value = d.complaint_summary || '';
+}
+
+// ════════════════════════════════════════════════════════════
+// Submit complaint
+// ════════════════════════════════════════════════════════════
+function submitComplaint() {
+  const complaint = {
+    id:        'RW-' + Date.now(),
+    location:  document.getElementById('complaint-location').value,
+    road_type: document.getElementById('complaint-road-type').value,
+    name:      document.getElementById('complaint-name').value ,
+    desc:      document.getElementById('complaint-desc').value,
+    lat:       currentLat,
+    lng:       currentLng,
+    timestamp: new Date().toISOString(),
+  };
+
+  if (!complaint.location && !complaint.desc) {
+    alert('Please add a location or description before submitting.');
+    return;
+  }
+
+  if (!navigator.onLine) {
+    // Save offline
+    offlineQueue.push(complaint);
+    localStorage.setItem('rw_offline', JSON.stringify(offlineQueue));
+    document.getElementById('offline-banner').style.display = 'block';
+    return;
+  }
+
+  // Show success (in real app: POST to your backend complaints endpoint)
+  document.getElementById('submit-success').style.display = 'block';
+  document.getElementById('ref-id').textContent = complaint.id;
+
+  // Drop a pin on the map
+  if (currentLat && currentMap) {
+    L.circleMarker([currentLat, currentLng], {
+      radius: 8,
+      fillColor: '#ff3b5c',
+      color: '#ffffff',
+      weight: 2,
+      opacity: 1,
+      fillOpacity: 0.9
+    }).addTo(currentMap).bindPopup('Reported issue');
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// Offline queue — auto-submit when back online
+// ════════════════════════════════════════════════════════════
+function setupOnlineListener() {
+  window.addEventListener('online', () => {
+    if (offlineQueue.length > 0) {
+      offlineQueue = [];
+      localStorage.removeItem('rw_offline');
+      document.getElementById('offline-banner').style.display = 'none';
+      console.log('Back online — queued complaints submitted');
+    }
+  });
+}
+
+// ════════════════════════════════════════════════════════════
+// Chat
+// ════════════════════════════════════════════════════════════
+async function sendChat() {
+  const input = document.getElementById('chat-input');
+  const query = input.value.trim();
+  if (!query) return;
+  input.value = '';
+  appendMsg('user', query);
+  await askRAG(query);
+}
+
+function quickAsk(q) {
+  appendMsg('user', q);
+  askRAG(q);
+}
+
+async function askRAG(query) {
+  const thinkId = appendThinking();
+  try {
+    const r = await fetch(`${API}/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query, session_id: sessionId,
+        road_type: currentRoadType,
+      })
+    });
+    const d = await r.json();
+    removeMsg(thinkId);
+    appendMsg('bot', d.answer || d.error || 'No answer returned.');
+  } catch {
+    removeMsg(thinkId);
+    appendMsg('bot', '⚠️ Could not reach backend. Make sure Flask is running on port 5000.');
+  }
+}
+
+function appendMsg(role, text) {
+  const id = 'msg-' + Date.now();
+  const div = document.createElement('div');
+  div.id = id;
+  div.className = `msg msg-${role}`;
+  div.textContent = text;
+  document.getElementById('chat-messages').appendChild(div);
+  div.scrollIntoView({ behavior: 'smooth' });
+  return id;
+}
+
+function appendThinking() {
+  const id = 'msg-' + Date.now();
+  const div = document.createElement('div');
+  div.id = id;
+  div.className = 'msg msg-thinking';
+  div.innerHTML = '<div class="typing-dots"><span></span><span></span><span></span></div> Thinking...';
+  document.getElementById('chat-messages').appendChild(div);
+  div.scrollIntoView({ behavior: 'smooth' });
+  return id;
+}
+
+function removeMsg(id) {
+  const el = document.getElementById(id);
+  if (el) el.remove();
+}
+
+// ════════════════════════════════════════════════════════════
+// Panel open/close
+// ════════════════════════════════════════════════════════════
+let activePanel = null;
+
+function openPanel(type) {
+  closePanel();
+  const panel = document.getElementById(`${type}-panel`);
+  panel.classList.add('open');
+  document.getElementById('overlay').classList.add('show');
+  activePanel = type;
+  // Update tabs
+  document.querySelectorAll('.tab-btn').forEach((b,i) => {
+    b.classList.toggle('active', (type==='report' && i===0) || (type==='chat' && i===1));
+  });
+}
+
+function closePanel() {
+  document.querySelectorAll('.slide-panel').forEach(p => p.classList.remove('open'));
+  document.getElementById('overlay').classList.remove('show');
+  activePanel = null;
+}
+
+// ════════════════════════════════════════════════════════════
+// Leaflet uses CartoDB Dark tiles — no custom style function needed
+// ════════════════════════════════════════════════════════════
+</script>
+</body>
+</html>
