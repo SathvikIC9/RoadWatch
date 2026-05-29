@@ -171,7 +171,7 @@ Backend API
 RoadWatch/
 │
 ├── frontend/
-│
+│   ├──index.html
 ├── backend/
 │   ├── main.py
 │   ├── rag_engine.py
@@ -322,14 +322,7 @@ python main.py
 
 ## Run Frontend
 
-Example:
-
-```bash
-npm install
-npm start
-```
-
-or open frontend locally depending on setup.
+Run the index.html using live Server 
 
 ---
 
@@ -368,15 +361,16 @@ Supported classes:
 
 
 ---
+# Working demo 
+<img width="1851" height="926" alt="image" src="https://github.com/user-attachments/assets/d6cc8228-2ca1-4aa5-a027-1bc46c603faf" />
+
 
 # 🔮 Future Improvements
 
 * Live complaint submission APIs
-* Offline complaint syncing
 * Mobile application
 * Better jurisdiction mapping
 * Multi-language support
-* Severity estimation and prioritization
 * Real-time road condition analytics
 
 ---
@@ -395,4 +389,4 @@ This project is intended for educational, research, and civic-tech innovation pu
 
 ---
 
-## Built with AI, code, and a lot of debugging.
+ Built with AI, code, and debugging.
