@@ -189,6 +189,94 @@ RoadWatch/
 
 ---
 
+# ⚙ About the DL model 
+The Model was built on kaggle notebooks using the RDD2022 and Pothole Detection Dataset (By Raj Dalsaniya).
+The model was made using the YOLOv8n model by Ultralytics, where the model was trained using 4 classes 
+├── class 0 : Longitudinal Crack
+├── class 1 : Transverse Crack
+├── class 2 : Alligator Crack
+└── class 3 : Pothole
+ 
+
+ here are a few snippets that were used to build the model 
+
+``` Depnedencies install
+
+!pip install ultralytics --quiet
+!pip install opencv-python-headless --quiet
+import os
+import shutil
+import random
+import yaml
+import zipfile
+from pathlib import Path
+
+
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
+
+import matplotlib.pyplot as plt
+import cv2
+
+import torch
+import ultralytics
+from ultralytics import YOLO
+
+import glob
+
+import urllib.request
+```
+
+``` Load dataset
+DATASET_PATH = "/kaggle/input/datasets/aliabdelmenam/rdd-2022/RDD_SPLIT"
+for root, dirs, files in os.walk(DATASET_PATH):
+    level = root.replace(DATASET_PATH, '').count(os.sep)
+    indent = ' ' * 2 * level
+    print(f'{indent}{os.path.basename(root)}/')
+    if level < 2:  # don't go too deep
+        subindent = ' ' * 2 * (level + 1)
+        for f in files[:5]:
+            print(f'{subindent}{f}')
+```
+
+``` Training the model
+model = YOLO('yolov8n.yaml').load('yolov8n.pt')
+results = model.train(
+    data=yaml_path,
+    epochs=50,           
+    imgsz=640,           
+    batch=16,            
+    device=0,          
+    project='/kaggle/working',
+    name='detector_v1',
+    patience=15,         
+    save=True,
+    plots=True,          
+    val=True,
+    workers=2,
+    lr0=0.01,         
+    lrf=0.01,           
+    momentum=0.937,
+    weight_decay=0.0005,
+    warmup_epochs=3,
+    augment=True,        
+    degrees=5.0,         
+    translate=0.1,
+    scale=0.5,
+    fliplr=0.5,          
+    mosaic=1.0,          
+)
+ 
+print("\n✅ Training complete!")
+print(f"Best model saved at: {results.save_dir}/weights/best.pt")
+ 
+
+```
+
+---
+
+
 # 🚀 Installation
 
 ## Clone Repository
